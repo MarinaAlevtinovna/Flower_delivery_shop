@@ -5,6 +5,12 @@ from django.contrib import messages
 from .forms import OrderForm
 from .models import Order
 from users.models import CustomUser
+from .serializers import OrderSerializer
+from rest_framework import viewsets
+
+class OrderViewSet(viewsets.ModelViewSet):
+    queryset = Order.objects.all()
+    serializer_class = OrderSerializer
 
 def cart_view(request):
     cart = request.session.get("cart", {})  # Получаем корзину из сессии
