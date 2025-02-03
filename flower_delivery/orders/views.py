@@ -1,5 +1,10 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from catalog.models import Product
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from .forms import OrderForm
+from .models import Order
+from users.models import CustomUser
 
 def cart_view(request):
     cart = request.session.get("cart", {})  # Получаем корзину из сессии
@@ -32,4 +37,33 @@ def remove_from_cart(request, product_id):
 
     request.session["cart"] = cart
     return redirect("orders:cart")
+
+def checkout(request):
+    cart = request.session.get("cart", {})
+
+    if not cart:
+        messages.error(request, "Ваша корзина пуста!")
+        return redirect("orders:cart")
+
+    if request.method == "POST":
+        form = OrderForm(request.POST)
+        if form.is_valid():
+            user = request.user if request.user.is_authenticated else None
+            order = Order.objects.create(
+                user=user,
+                status="new"
+            )
+            products = Product.objects.filter(id__in=cart.keys())
+            order.products.set(products)
+            order.save()
+
+            # Очистка корзины
+            request.session["cart"] = {}
+
+            messages.success(request, "Заказ успешно оформлен! Мы с вами свяжемся.")
+            return redirect("home")
+    else:
+        form = OrderForm()
+
+    return render(request, "orders/checkout.html", {"form": form})
 
