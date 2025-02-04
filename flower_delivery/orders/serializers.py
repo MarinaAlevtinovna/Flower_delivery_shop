@@ -1,15 +1,26 @@
 from rest_framework import serializers
-from .models import Order
-from catalog.models import Product
+from .models import Order, Product
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
 
 class ProductSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
-        fields = ['id', 'name', 'price']
+        fields = ["id", "name", "price"]
 
 class OrderSerializer(serializers.ModelSerializer):
-    products = ProductSerializer(many=True)
+    products = serializers.PrimaryKeyRelatedField(queryset=Product.objects.all(), many=True)
+    user = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
 
     class Meta:
         model = Order
-        fields = ['id', 'user', 'products', 'status']
+        fields = ["id", "user", "products", "status", "name", "phone", "address"]
+
+    def create(self, validated_data):
+        products = validated_data.pop("products", [])
+        order = Order.objects.create(**validated_data)
+        order.products.set(products)
+        return order
+
+

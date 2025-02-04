@@ -1,16 +1,76 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from catalog.models import Product
-from django.shortcuts import render, redirect
 from django.contrib import messages
 from .forms import OrderForm
-from .models import Order
 from users.models import CustomUser
-from .serializers import OrderSerializer
 from rest_framework import viewsets
+from .models import Order
+from .serializers import OrderSerializer
+from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.response import Response
+from .serializers import ProductSerializer
+from django.contrib.auth import get_user_model
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.authentication import TokenAuthentication
+
+User = get_user_model()
+
+@api_view(["GET"])
+@permission_classes([AllowAny])  # Разрешаем доступ без токена
+def get_user(request):
+    telegram_id = request.GET.get("telegram_id")
+
+    if not telegram_id:
+        return Response({"error": "Telegram ID is required"}, status=400)
+
+    # Создаём пользователя, если его нет, указывая уникальный email
+    user, created = User.objects.get_or_create(
+        username=f"user_{telegram_id}",
+        defaults={
+            "password": "securepass123",
+            "email": f"user_{telegram_id}@example.com"  # Уникальный email
+        }
+    )
+
+    return Response({"id": user.id, "username": user.username})
 
 class OrderViewSet(viewsets.ModelViewSet):
     queryset = Order.objects.all()
     serializer_class = OrderSerializer
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def list(self, request, *args, **kwargs):
+        telegram_id = request.GET.get("user")  # Получаем Telegram ID
+
+        if telegram_id:
+            user = User.objects.filter(username=f"user_{telegram_id}").first()
+            if user:
+                self.queryset = self.queryset.filter(user=user)
+
+        return super().list(request, *args, **kwargs)
+
+    def perform_create(self, serializer):
+        telegram_id = self.request.data.get("user")  # Берём Telegram ID из запроса
+
+        # Проверяем, есть ли пользователь с таким Telegram ID, и создаём его при необходимости
+        user, created = User.objects.get_or_create(
+            username=f"user_{telegram_id}",
+            defaults={
+                "password": "securepass123",
+                "email": f"user_{telegram_id}@example.com"  # Генерируем уникальный email
+            }
+        )
+
+        # Сохраняем заказ с этим пользователем
+        serializer.save(user=user)
+
+
+class ProductViewSet(viewsets.ModelViewSet):
+    queryset = Product.objects.all()
+    serializer_class = ProductSerializer
+    permission_classes = []  # Открываем доступ
+
 
 def cart_view(request):
     cart = request.session.get("cart", {})  # Получаем корзину из сессии
