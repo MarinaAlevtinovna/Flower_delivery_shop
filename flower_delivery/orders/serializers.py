@@ -12,10 +12,11 @@ class ProductSerializer(serializers.ModelSerializer):
 class OrderSerializer(serializers.ModelSerializer):
     products = serializers.PrimaryKeyRelatedField(queryset=Product.objects.all(), many=True)
     user = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
+    created_at = serializers.DateTimeField(read_only=True)  # ✅ Добавляем это поле
 
     class Meta:
         model = Order
-        fields = ["id", "user", "products", "status", "name", "phone", "address"]
+        fields = ["id", "user", "products", "status", "name", "phone", "address", "created_at"]
 
     def create(self, validated_data):
         products = validated_data.pop("products", [])

@@ -1,4 +1,3 @@
-import logging
 import asyncio
 import requests
 from aiogram import Bot, Dispatcher, types, F
@@ -7,9 +6,22 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from .bot_config import BOT_TOKEN, API_TOKEN, ADMIN_ID
+import logging
 
-# Настройки логирования
-logging.basicConfig(level=logging.INFO)
+# Конфигурация логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    filename="bot.log",  # Лог сохраняется в файл
+    filemode="a",  # Дописывает в файл (не перезаписывает)
+)
+
+# Дополнительно выводим ошибки в консоль
+console = logging.StreamHandler()
+console.setLevel(logging.ERROR)
+formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+console.setFormatter(formatter)
+logging.getLogger("").addHandler(console)
 
 # Создаём бота и диспетчер
 bot = Bot(token=BOT_TOKEN)
@@ -71,27 +83,57 @@ async def order_start(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.message(OrderState.waiting_for_name)
 async def process_name(message: types.Message, state: FSMContext):
-    await state.update_data(name=message.text)
-    await message.answer("📞 Введите ваш номер телефона:")
+    name = message.text.strip()
+
+    # Проверяем, что имя содержит только буквы и его длина корректна
+    if not name.isalpha() or len(name) < 2 or len(name) > 50:
+        await message.answer("❌ Имя должно содержать только буквы и быть длиной от 2 до 50 символов.\nВведите имя заново:")
+        return
+
+    await state.update_data(name=name)
+    await message.answer("📞 Введите ваш номер телефона (только цифры):")
     await state.set_state(OrderState.waiting_for_phone)
 
 @dp.message(OrderState.waiting_for_phone)
 async def process_phone(message: types.Message, state: FSMContext):
-    await state.update_data(phone=message.text)
-    await message.answer("🏠 Введите ваш адрес:")
+    phone = message.text.strip().replace(" ", "")  # Удаляем пробелы
+
+    # Проверяем, что номер состоит только из цифр и имеет допустимую длину
+    if not phone.isdigit():
+        await message.answer("❌ Телефон должен содержать только цифры. Введите телефон заново:")
+        return
+
+    if not (5 <= len(phone) <= 15):
+        await message.answer("❌ Телефон должен быть длиной от 5 до 15 символов. Введите телефон заново:")
+        return
+
+    await state.update_data(phone=phone)
+    await message.answer("🏠 Введите ваш адрес (минимум 5 символов):")
     await state.set_state(OrderState.waiting_for_address)
 
 @dp.message(OrderState.waiting_for_address)
 async def process_address(message: types.Message, state: FSMContext):
-    await state.update_data(address=message.text)
+    address = message.text.strip()
+
+    # Проверяем, что адрес не пустой и содержит минимум 5 символов
+    if len(address) < 5:
+        await message.answer("❌ Адрес должен содержать минимум 5 символов.\nВведите адрес заново:")
+        return
+
+    await state.update_data(address=address)
 
     data = await state.get_data()
+    product_id = data["product_id"]
+    name = data["name"]
+    phone = data["phone"]
+    address = data["address"]
+
     confirmation_text = (
         f"📦 Подтверждение заказа:\n"
-        f"🛒 Товар ID: {data['product_id']}\n"
-        f"👤 Имя: {data['name']}\n"
-        f"📞 Телефон: {data['phone']}\n"
-        f"🏠 Адрес: {data['address']}\n\n"
+        f"🛒 Товар ID: {product_id}\n"
+        f"👤 Имя: {name}\n"
+        f"📞 Телефон: {phone}\n"
+        f"🏠 Адрес: {address}\n\n"
         f"✅ Подтвердите заказ."
     )
 
@@ -163,9 +205,12 @@ async def confirm_order(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.message(F.text == "📦 Мои заказы")
 async def my_orders(message: types.Message):
+    user_telegram_id = message.from_user.id
+
+    # Запрашиваем Django ID пользователя
     user_response = requests.get(
-        f"http://127.0.0.1:8000/api/get_user/?telegram_id={message.from_user.id}",
-        headers=headers
+        f"http://127.0.0.1:8000/api/get_user/?telegram_id={user_telegram_id}",
+        headers={"Authorization": f"Token {API_TOKEN}"}  # Добавляем API-токен
     )
 
     if user_response.status_code != 200:
@@ -175,17 +220,50 @@ async def my_orders(message: types.Message):
     user_data = user_response.json()
     django_user_id = user_data["id"]
 
-    response = requests.get(f"http://127.0.0.1:8000/api/orders/?user={django_user_id}", headers=headers)
+    # Запрашиваем заказы пользователя
+    response = requests.get(
+        f"http://127.0.0.1:8000/api/orders/?user={django_user_id}",
+        headers={"Authorization": f"Token {API_TOKEN}"}  # Добавляем API-токен
+    )
 
     if response.status_code == 200:
         orders = response.json()
         if not orders:
             await message.answer("❌ У вас пока нет заказов.")
         else:
-            text = "\n".join([f"🛒 Заказ #{o['id']}: {o['status']}" for o in orders])
-            await message.answer(f"📦 *Ваши заказы:*\n{text}", parse_mode="Markdown")
+            text = "📦 *Ваши заказы:*\n\n"
+            for order in orders:
+                product_id = order["products"][0]
+                product_response = requests.get(
+                    f"http://127.0.0.1:8000/api/products/{product_id}/",
+                    headers={"Authorization": f"Token {API_TOKEN}"}  # Добавляем токен
+                )
+
+                if product_response.status_code == 200:
+                    product_name = product_response.json().get("name", f"Товар ID {product_id}")
+                else:
+                    product_name = f"Товар ID {product_id}"
+
+                # **Статус берем из API**
+                status_mapping = {
+                    "new": "🟡 Новый",
+                    "processing": "🟠 В обработке",
+                    "completed": "🟢 Завершён"
+                }
+                status = status_mapping.get(order["status"], "❓ Неизвестный статус")
+
+                text += (
+                    f"🛒 *Товар:* {product_name}\n"
+                    f"📆 *Дата:* {order.get('created_at', 'Неизвестно')[:10]}\n"
+                    f"🔘 *Статус:* {status}\n"
+                    f"----------------------\n"
+                )
+
+            await message.answer(text, parse_mode="Markdown")
     else:
-        await message.answer("❌ Ошибка загрузки заказов!")
+        await message.answer("❌ Ошибка загрузки заказов! Сервер вернул ошибку 401.")
+
+
 
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
