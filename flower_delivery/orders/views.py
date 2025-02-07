@@ -1,7 +1,7 @@
 from django.shortcuts import render, redirect, get_object_or_404
-from catalog.models import Product
 from django.contrib import messages
 from .forms import OrderForm
+from catalog.models import Product
 from users.models import CustomUser
 from rest_framework import viewsets
 from .models import Order

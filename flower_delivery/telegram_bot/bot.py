@@ -1,7 +1,7 @@
 import asyncio
 import requests
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile, InputFile
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -49,34 +49,68 @@ class OrderState(StatesGroup):
 # Обработчик команды /start
 @dp.message(Command("start"))
 async def start(message: types.Message):
+    telegram_id = message.from_user.id
+    username = message.from_user.username or f"user_{telegram_id}"
+
+    user_response = requests.get(
+        f"http://127.0.0.1:8000/api/get_user/?telegram_id={telegram_id}",
+        headers=headers
+    )
+
+    if user_response.status_code != 200:
+        create_user_data = {"username": username, "telegram_id": telegram_id}
+        requests.post("http://127.0.0.1:8000/api/users/", json=create_user_data, headers=headers)
+
     await message.answer("👋 Добро пожаловать в Flower Delivery Bot!\nВыберите действие:", reply_markup=menu)
 
 # Получение списка товаров через API
-@dp.message(F.text == "🛍 Каталог")
+import os
+from flower_delivery.settings import MEDIA_ROOT, SITE_URL, MEDIA_URL
+
+@dp.message(F.text == "\U0001F6CD Каталог")
 async def catalog(message: types.Message):
-    response = requests.get("http://127.0.0.1:8000/api/products/", headers=headers)
+    response = requests.get(f"{SITE_URL}/api/catalog/", headers=headers)
 
     if response.status_code == 200:
         products = response.json()
-        if not products:
-            await message.answer("❌ Каталог пуст!")
-        else:
-            for product in products:
-                text = f"🌸 *{product['name']}*\n💰 Цена: {product['price']} ₽"
-                keyboard = InlineKeyboardMarkup(
-                    inline_keyboard=[
-                        [InlineKeyboardButton(text="🛍 Заказать", callback_data=f"order_{product['id']}")]
-                    ]
-                )
-                await message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
+
+        for product in products:
+            image_path = product.get("image", "").strip()
+            button = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🛍 Заказать", callback_data=f"order_{product['id']}")]
+            ])
+
+            if image_path:
+                # ✅ Убираем возможный дубликат `/media/`
+                if image_path.startswith(MEDIA_URL):
+                    image_path = image_path[len(MEDIA_URL):]
+
+                # 🔄 Нормализация пути (универсальная для Windows/Linux)
+                full_path = os.path.normpath(os.path.join(MEDIA_ROOT, image_path.lstrip("/")))
+
+                logging.info(f"🔍 Проверяем путь: {full_path}")
+
+                if os.path.exists(full_path):
+                    try:
+                        photo = FSInputFile(full_path)  # <-- Корректно загружаем файл
+                        logging.info(f"📸 Отправка фото: {full_path}")
+                        await message.answer_photo(photo=photo, caption=f"{product['name']}\n💰 {product['price']} руб.", reply_markup=button)
+                    except Exception as e:
+                        logging.error(f"❌ Ошибка отправки фото: {e}")
+                        await message.answer_photo(photo="https://via.placeholder.com/300", caption=f"{product['name']}\n💰 {product['price']} руб.", reply_markup=button)
+                else:
+                    logging.warning(f"⚠️ Файл не найден: {full_path}. Используем заглушку.")
+                    await message.answer_photo(photo="https://via.placeholder.com/300", caption=f"{product['name']}\n💰 {product['price']} руб.", reply_markup=button)
+
     else:
-        await message.answer("❌ Ошибка загрузки каталога!")
+        logging.error(f"❌ Ошибка загрузки каталога! Сервер вернул статус {response.status_code}.")
+        await message.answer(f"❌ Ошибка загрузки каталога! Сервер вернул статус {response.status_code}.")
 
 # Обработчик нажатия кнопки "Заказать"
 @dp.callback_query(lambda c: c.data.startswith("order_"))
 async def order_start(callback: types.CallbackQuery, state: FSMContext):
     product_id = int(callback.data.split("_")[1])
-    await state.update_data(product_id=product_id)
+    await state.update_data(product_id=product_id, telegram_id=callback.from_user.id)
     await callback.message.answer("📛 Введите ваше имя:")
     await state.set_state(OrderState.waiting_for_name)
     await callback.answer()
@@ -171,7 +205,8 @@ async def confirm_order(callback: types.CallbackQuery, state: FSMContext):
         "status": "new",
         "name": data["name"],
         "phone": data["phone"],
-        "address": data["address"]
+        "address": data["address"],
+        "telegram_id": callback.from_user.id  # Добавляем telegram_id в заказ
     }
 
     response = requests.post("http://127.0.0.1:8000/api/orders/", json=order_data, headers=headers)
@@ -187,7 +222,8 @@ async def confirm_order(callback: types.CallbackQuery, state: FSMContext):
             f"📦 Товар ID: {data['product_id']}\n"
             f"📛 Имя: {data['name']}\n"
             f"📞 Телефон: {data['phone']}\n"
-            f"🏠 Адрес: {data['address']}"
+            f"🏠 Адрес: {data['address']}\n"
+            f"🆔 Telegram ID: {callback.from_user.id}"
         )
 
         try:
@@ -203,14 +239,14 @@ async def confirm_order(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.answer()
 
+
 @dp.message(F.text == "📦 Мои заказы")
 async def my_orders(message: types.Message):
     user_telegram_id = message.from_user.id
 
-    # Запрашиваем Django ID пользователя
     user_response = requests.get(
         f"http://127.0.0.1:8000/api/get_user/?telegram_id={user_telegram_id}",
-        headers={"Authorization": f"Token {API_TOKEN}"}  # Добавляем API-токен
+        headers={"Authorization": f"Token {API_TOKEN}"}
     )
 
     if user_response.status_code != 200:
@@ -220,10 +256,9 @@ async def my_orders(message: types.Message):
     user_data = user_response.json()
     django_user_id = user_data["id"]
 
-    # Запрашиваем заказы пользователя
     response = requests.get(
-        f"http://127.0.0.1:8000/api/orders/?user={django_user_id}",
-        headers={"Authorization": f"Token {API_TOKEN}"}  # Добавляем API-токен
+        f"http://127.0.0.1:8000/api/orders/?telegram_id={user_telegram_id}",
+        headers={"Authorization": f"Token {API_TOKEN}"}
     )
 
     if response.status_code == 200:
@@ -236,7 +271,7 @@ async def my_orders(message: types.Message):
                 product_id = order["products"][0]
                 product_response = requests.get(
                     f"http://127.0.0.1:8000/api/products/{product_id}/",
-                    headers={"Authorization": f"Token {API_TOKEN}"}  # Добавляем токен
+                    headers={"Authorization": f"Token {API_TOKEN}"}
                 )
 
                 if product_response.status_code == 200:
@@ -244,7 +279,6 @@ async def my_orders(message: types.Message):
                 else:
                     product_name = f"Товар ID {product_id}"
 
-                # **Статус берем из API**
                 status_mapping = {
                     "new": "🟡 Новый",
                     "processing": "🟠 В обработке",
@@ -262,7 +296,6 @@ async def my_orders(message: types.Message):
             await message.answer(text, parse_mode="Markdown")
     else:
         await message.answer("❌ Ошибка загрузки заказов! Сервер вернул ошибку 401.")
-
 
 
 async def main():

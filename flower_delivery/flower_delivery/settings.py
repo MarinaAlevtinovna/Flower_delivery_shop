@@ -1,9 +1,18 @@
 from pathlib import Path
 import os
+import sys
+from pathlib import Path
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+
+# Добавляем `flower_delivery_shop` и `flower_delivery` в `sys.path`
+sys.path.insert(0, BASE_DIR)
+sys.path.insert(0, os.path.join(BASE_DIR, "flower_delivery"))
+sys.path.insert(0, os.path.join(BASE_DIR, "telegram_bot"))
+sys.path.insert(0, os.path.join(BASE_DIR, "users"))
+sys.path.insert(0, os.path.join(BASE_DIR, "catalog"))
+sys.path.insert(0, os.path.join(BASE_DIR, "orders"))
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
@@ -72,7 +81,7 @@ WSGI_APPLICATION = 'flower_delivery.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'NAME': str(BASE_DIR / 'db.sqlite3'),
     }
 }
 
@@ -107,11 +116,12 @@ USE_I18N = True
 
 USE_TZ = True
 
+SITE_URL = "http://127.0.0.1:8000"
+MEDIA_URL = "/media/"
+MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/5.1/howto/static-files/
-
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
+STATIC_ROOT = os.path.join(BASE_DIR, "static")
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
