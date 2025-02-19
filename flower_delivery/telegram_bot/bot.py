@@ -10,22 +10,19 @@ import logging
 import os
 from flower_delivery.settings import MEDIA_ROOT, SITE_URL, MEDIA_URL
 
-# Конфигурация логирования
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
-    filename="bot.log",  # Лог сохраняется в файл
-    filemode="a",  # Дописывает в файл (не перезаписывает)
+    filename="bot.log",
+    filemode="a",
 )
 
-# Дополнительно выводим ошибки в консоль
 console = logging.StreamHandler()
 console.setLevel(logging.ERROR)
 formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
 console.setFormatter(formatter)
 logging.getLogger("").addHandler(console)
 
-# Создаём бота и диспетчер
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
@@ -33,7 +30,6 @@ headers = {
     "Authorization": f"Token {API_TOKEN}"
 }
 
-# Клавиатура
 menu = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="🛍 Каталог"), KeyboardButton(text="📦 Мои заказы")]
@@ -41,7 +37,6 @@ menu = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-# Машина состояний для заказа
 class OrderState(StatesGroup):
     waiting_for_name = State()
     waiting_for_phone = State()
@@ -49,7 +44,6 @@ class OrderState(StatesGroup):
     confirming = State()
 
 async def send_message(chat_id: int, message: str):
-    """Отправляет сообщение пользователю в Telegram"""
     try:
         await bot.send_message(chat_id, message)
         logging.info(f"📩 Уведомление отправлено пользователю {chat_id}: {message}")
@@ -57,14 +51,12 @@ async def send_message(chat_id: int, message: str):
         logging.error(f"❌ Ошибка отправки уведомления пользователю {chat_id}: {e}")
 
 
-# Обработчик команды /start
 @dp.message(CommandStart())
 async def start(message: Message):
     telegram_id = message.from_user.id
     username = message.from_user.username or f"user_{telegram_id}"
 
     try:
-        # Проверяем, есть ли пользователь с таким Telegram ID
         user_response = requests.get(
             f"http://127.0.0.1:8000/api/get_user/?telegram_id={telegram_id}",
             headers=headers
@@ -75,7 +67,6 @@ async def start(message: Message):
         if user_response.status_code == 200:
             user_data = user_response.json()
 
-            # Если `telegram_id` у пользователя пустой, обновляем его
             if not user_data.get("telegram_id"):
                 update_data = {"telegram_id": telegram_id}
                 update_response = requests.patch(
@@ -86,7 +77,6 @@ async def start(message: Message):
                 print(f"✅ Обновлен Telegram ID: {update_response.status_code}, {update_response.text}")
 
         else:
-            # Если пользователя нет, создаём его
             create_user_data = {"username": username, "telegram_id": telegram_id}
             create_response = requests.post(
                 "http://127.0.0.1:8000/api/users/",
@@ -95,7 +85,6 @@ async def start(message: Message):
             )
             print(f"✅ Создан новый пользователь: {create_response.status_code}, {create_response.text}")
 
-        # Сообщаем пользователю, что он зарегистрирован
         await message.answer("✅ Вы зарегистрированы! Теперь вы будете получать уведомления о заказах.", reply_markup=menu)
 
     except Exception as e:
@@ -103,7 +92,6 @@ async def start(message: Message):
         await message.answer("⚠ Произошла ошибка при регистрации. Попробуйте ещё раз.")
 
 
-# Получение списка товаров через API
 @dp.message(F.text == "\U0001F6CD Каталог")
 async def catalog(message: types.Message):
     response = requests.get(f"{SITE_URL}/api/catalog/", headers=headers)
@@ -118,18 +106,16 @@ async def catalog(message: types.Message):
             ])
 
             if image_path:
-                # ✅ Убираем возможный дубликат `/media/`
                 if image_path.startswith(MEDIA_URL):
                     image_path = image_path[len(MEDIA_URL):]
 
-                # 🔄 Нормализация пути (универсальная для Windows/Linux)
                 full_path = os.path.normpath(os.path.join(MEDIA_ROOT, image_path.lstrip("/")))
 
                 logging.info(f"🔍 Проверяем путь: {full_path}")
 
                 if os.path.exists(full_path):
                     try:
-                        photo = FSInputFile(full_path)  # <-- Корректно загружаем файл
+                        photo = FSInputFile(full_path)
                         logging.info(f"📸 Отправка фото: {full_path}")
                         await message.answer_photo(photo=photo, caption=f"{product['name']}\n💰 {product['price']} руб.", reply_markup=button)
                     except Exception as e:
@@ -143,7 +129,6 @@ async def catalog(message: types.Message):
         logging.error(f"❌ Ошибка загрузки каталога! Сервер вернул статус {response.status_code}.")
         await message.answer(f"❌ Ошибка загрузки каталога! Сервер вернул статус {response.status_code}.")
 
-# Обработчик нажатия кнопки "Заказать"
 @dp.callback_query(lambda c: c.data.startswith("order_"))
 async def order_start(callback: types.CallbackQuery, state: FSMContext):
     product_id = int(callback.data.split("_")[1])
@@ -156,7 +141,6 @@ async def order_start(callback: types.CallbackQuery, state: FSMContext):
 async def process_name(message: types.Message, state: FSMContext):
     name = message.text.strip()
 
-    # Проверяем, что имя содержит только буквы и его длина корректна
     if not name.isalpha() or len(name) < 2 or len(name) > 50:
         await message.answer("❌ Имя должно содержать только буквы и быть длиной от 2 до 50 символов.\nВведите имя заново:")
         return
@@ -167,9 +151,8 @@ async def process_name(message: types.Message, state: FSMContext):
 
 @dp.message(OrderState.waiting_for_phone)
 async def process_phone(message: types.Message, state: FSMContext):
-    phone = message.text.strip().replace(" ", "")  # Удаляем пробелы
+    phone = message.text.strip().replace(" ", "")
 
-    # Проверяем, что номер состоит только из цифр и имеет допустимую длину
     if not phone.isdigit():
         await message.answer("❌ Телефон должен содержать только цифры. Введите телефон заново:")
         return
@@ -186,7 +169,6 @@ async def process_phone(message: types.Message, state: FSMContext):
 async def process_address(message: types.Message, state: FSMContext):
     address = message.text.strip()
 
-    # Проверяем, что адрес не пустой и содержит минимум 5 символов
     if len(address) < 5:
         await message.answer("❌ Адрес должен содержать минимум 5 символов.\nВведите адрес заново:")
         return
@@ -218,7 +200,6 @@ async def process_address(message: types.Message, state: FSMContext):
     await message.answer(confirmation_text, reply_markup=keyboard)
     await state.set_state(OrderState.confirming)
 
-# Подтверждение заказа и уведомление админу
 @dp.callback_query(lambda c: c.data == "confirm_order")
 async def confirm_order(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
@@ -238,7 +219,7 @@ async def confirm_order(callback: types.CallbackQuery, state: FSMContext):
 
     order_data = {
         "telegram_id": callback.from_user.id,
-        "user": django_user_id,  # Используем ID существующего пользователя
+        "user": django_user_id,
         "products": [data["product_id"]],
         "status": "new",
         "name": data["name"],
@@ -246,9 +227,9 @@ async def confirm_order(callback: types.CallbackQuery, state: FSMContext):
         "address": data["address"]
     }
 
-    print(f"📤 Отправляем заказ: {order_data}")  # Лог перед отправкой
+    print(f"📤 Отправляем заказ: {order_data}")
     response = requests.post("http://127.0.0.1:8000/api/orders/", json=order_data, headers=headers)
-    print(f"📥 Ответ от сервера: {response.status_code}, {response.text}")  # Логируем ответ
+    print(f"📥 Ответ от сервера: {response.status_code}, {response.text}")
 
     if response.status_code == 201:
         order_info = response.json()

@@ -13,7 +13,7 @@ class ProductSerializer(serializers.ModelSerializer):
 class OrderSerializer(serializers.ModelSerializer):
     products = serializers.PrimaryKeyRelatedField(queryset=Product.objects.all(), many=True)
     user = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
-    created_at = serializers.DateTimeField(read_only=True)  # ✅ Добавляем это поле
+    created_at = serializers.DateTimeField(read_only=True)
 
     class Meta:
         model = Order

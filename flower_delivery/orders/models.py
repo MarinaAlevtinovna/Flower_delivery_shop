@@ -7,7 +7,7 @@ class Order(models.Model):
     products = models.ManyToManyField(Product)
     created_at = models.DateTimeField(auto_now_add=True)
 
-    name = models.CharField(max_length=255, blank=True, default="")  # ✅ Теперь есть default
+    name = models.CharField(max_length=255, blank=True, default="")
     phone = models.CharField(max_length=20, blank=True, default="")
     address = models.TextField(blank=True, default="")
 

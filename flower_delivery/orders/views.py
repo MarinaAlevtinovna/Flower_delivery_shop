@@ -20,7 +20,6 @@ logger = logging.getLogger(__name__)
 User = get_user_model()
 
 def get_product_or_404(product_id):
-    """Функция для безопасного получения товара"""
     try:
         return Product.objects.get(id=product_id)
     except Product.DoesNotExist:
@@ -31,7 +30,6 @@ def get_product_or_404(product_id):
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def get_user_orders(request):
-    """Возвращает заказы только текущего пользователя"""
     telegram_id = request.GET.get("telegram_id")
 
     if not telegram_id:
@@ -57,12 +55,11 @@ class OrderViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        """Фильтруем заказы только для текущего пользователя"""
         user = self.request.user
         return Order.objects.filter(user=user)
 
     def list(self, request, *args, **kwargs):
-        telegram_id = request.GET.get("user")  # Получаем Telegram ID
+        telegram_id = request.GET.get("user")
 
         if telegram_id:
             user = User.objects.filter(username=f"user_{telegram_id}").first()
@@ -72,7 +69,6 @@ class OrderViewSet(viewsets.ModelViewSet):
         return super().list(request, *args, **kwargs)
 
     def perform_create(self, serializer):
-        """Привязывает заказ к пользователю"""
         telegram_id = self.request.data.get("telegram_id")
 
         if not telegram_id:
@@ -89,11 +85,11 @@ class OrderViewSet(viewsets.ModelViewSet):
 class ProductViewSet(viewsets.ModelViewSet):
     queryset = Product.objects.all()
     serializer_class = ProductSerializer
-    permission_classes = []  # Открываем доступ
+    permission_classes = []
 
 
 def cart_view(request):
-    cart = request.session.get("cart", {})  # Получаем корзину из сессии
+    cart = request.session.get("cart", {})
     cart_items = []
     total_price = 0
 
@@ -105,8 +101,7 @@ def cart_view(request):
     return render(request, "orders/cart.html", {"cart_items": cart_items, "total_price": total_price})
 
 def add_to_cart(request, product_id):
-    """Добавить товар в корзину по ID"""
-    product = get_product_or_404(product_id)  # Получаем товар по ID
+    product = get_product_or_404(product_id)
 
     if not product:
         messages.error(request, "Этот товар больше недоступен.")
@@ -119,7 +114,7 @@ def add_to_cart(request, product_id):
     else:
         cart[str(product_id)] = 1
 
-    request.session["cart"] = cart  # Сохраняем изменения в сессии
+    request.session["cart"] = cart
     return redirect("orders:cart")
 
 
@@ -151,7 +146,6 @@ def checkout(request):
             order.products.set(products)
             order.save()
 
-            # Очистка корзины
             request.session["cart"] = {}
 
             messages.success(request, "Заказ успешно оформлен! Мы с вами свяжемся.")
