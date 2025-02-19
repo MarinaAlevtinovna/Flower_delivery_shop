@@ -6,7 +6,6 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-# Добавляем `flower_delivery_shop` и `flower_delivery` в `sys.path`
 sys.path.insert(0, BASE_DIR)
 sys.path.insert(0, os.path.join(BASE_DIR, "flower_delivery"))
 sys.path.insert(0, os.path.join(BASE_DIR, "telegram_bot"))
@@ -39,9 +38,8 @@ INSTALLED_APPS = [
     "rest_framework.authtoken",
     "users",
     "catalog",
-    "orders",
     "telegram_bot",
-
+    'orders.apps.OrdersConfig'
 ]
 
 MIDDLEWARE = [

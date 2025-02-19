@@ -12,33 +12,54 @@ from .serializers import ProductSerializer
 from django.contrib.auth import get_user_model
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.authentication import TokenAuthentication
+from rest_framework import serializers
+import logging
+
+logger = logging.getLogger(__name__)
 
 User = get_user_model()
 
+def get_product_or_404(product_id):
+    """Функция для безопасного получения товара"""
+    try:
+        return Product.objects.get(id=product_id)
+    except Product.DoesNotExist:
+        logging.warning(f"⚠️ Товар с ID {product_id} не найден!")
+        return None
+
+
 @api_view(["GET"])
-@permission_classes([AllowAny])  # Разрешаем доступ без токена
-def get_user(request):
+@permission_classes([AllowAny])
+def get_user_orders(request):
+    """Возвращает заказы только текущего пользователя"""
     telegram_id = request.GET.get("telegram_id")
 
     if not telegram_id:
         return Response({"error": "Telegram ID is required"}, status=400)
 
-    # Создаём пользователя, если его нет, указывая уникальный email
-    user, created = User.objects.get_or_create(
-        username=f"user_{telegram_id}",
-        defaults={
-            "password": "securepass123",
-            "email": f"user_{telegram_id}@example.com"  # Уникальный email
-        }
-    )
+    user = User.objects.filter(telegram_id=telegram_id).first()
 
-    return Response({"id": user.id, "username": user.username})
+    if not user:
+        return Response({"message": "Пользователь не найден"}, status=404)
+
+    orders = Order.objects.filter(user=user)  # 🔹 Фильтруем заказы по пользователю
+
+    if not orders.exists():
+        return Response({"message": "У вас пока нет заказов"}, status=200)
+
+    serializer = OrderSerializer(orders, many=True)
+    return Response(serializer.data, status=200)
 
 class OrderViewSet(viewsets.ModelViewSet):
     queryset = Order.objects.all()
     serializer_class = OrderSerializer
     authentication_classes = [TokenAuthentication]
     permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        """Фильтруем заказы только для текущего пользователя"""
+        user = self.request.user
+        return Order.objects.filter(user=user)
 
     def list(self, request, *args, **kwargs):
         telegram_id = request.GET.get("user")  # Получаем Telegram ID
@@ -51,18 +72,17 @@ class OrderViewSet(viewsets.ModelViewSet):
         return super().list(request, *args, **kwargs)
 
     def perform_create(self, serializer):
-        telegram_id = self.request.data.get("user")  # Берём Telegram ID из запроса
+        """Привязывает заказ к пользователю"""
+        telegram_id = self.request.data.get("telegram_id")
 
-        # Проверяем, есть ли пользователь с таким Telegram ID, и создаём его при необходимости
-        user, created = User.objects.get_or_create(
-            username=f"user_{telegram_id}",
-            defaults={
-                "password": "securepass123",
-                "email": f"user_{telegram_id}@example.com"  # Генерируем уникальный email
-            }
-        )
+        if not telegram_id:
+            raise serializers.ValidationError({"telegram_id": "Не указан Telegram ID"})
 
-        # Сохраняем заказ с этим пользователем
+        user = User.objects.filter(telegram_id=telegram_id).first()
+
+        if not user:
+            raise serializers.ValidationError({"user": "Пользователь не найден!"})
+
         serializer.save(user=user)
 
 
@@ -85,6 +105,13 @@ def cart_view(request):
     return render(request, "orders/cart.html", {"cart_items": cart_items, "total_price": total_price})
 
 def add_to_cart(request, product_id):
+    """Добавить товар в корзину по ID"""
+    product = get_product_or_404(product_id)  # Получаем товар по ID
+
+    if not product:
+        messages.error(request, "Этот товар больше недоступен.")
+        return redirect("orders:cart")
+
     cart = request.session.get("cart", {})
 
     if str(product_id) in cart:
@@ -94,6 +121,7 @@ def add_to_cart(request, product_id):
 
     request.session["cart"] = cart  # Сохраняем изменения в сессии
     return redirect("orders:cart")
+
 
 def remove_from_cart(request, product_id):
     cart = request.session.get("cart", {})

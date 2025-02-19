@@ -1,12 +1,14 @@
 import asyncio
 import requests
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile, InputFile
-from aiogram.filters import Command
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile, InputFile
+from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from .bot_config import BOT_TOKEN, API_TOKEN, ADMIN_ID
 import logging
+import os
+from flower_delivery.settings import MEDIA_ROOT, SITE_URL, MEDIA_URL
 
 # Конфигурация логирования
 logging.basicConfig(
@@ -46,27 +48,62 @@ class OrderState(StatesGroup):
     waiting_for_address = State()
     confirming = State()
 
+async def send_message(chat_id: int, message: str):
+    """Отправляет сообщение пользователю в Telegram"""
+    try:
+        await bot.send_message(chat_id, message)
+        logging.info(f"📩 Уведомление отправлено пользователю {chat_id}: {message}")
+    except Exception as e:
+        logging.error(f"❌ Ошибка отправки уведомления пользователю {chat_id}: {e}")
+
+
 # Обработчик команды /start
-@dp.message(Command("start"))
-async def start(message: types.Message):
+@dp.message(CommandStart())
+async def start(message: Message):
     telegram_id = message.from_user.id
     username = message.from_user.username or f"user_{telegram_id}"
 
-    user_response = requests.get(
-        f"http://127.0.0.1:8000/api/get_user/?telegram_id={telegram_id}",
-        headers=headers
-    )
+    try:
+        # Проверяем, есть ли пользователь с таким Telegram ID
+        user_response = requests.get(
+            f"http://127.0.0.1:8000/api/get_user/?telegram_id={telegram_id}",
+            headers=headers
+        )
 
-    if user_response.status_code != 200:
-        create_user_data = {"username": username, "telegram_id": telegram_id}
-        requests.post("http://127.0.0.1:8000/api/users/", json=create_user_data, headers=headers)
+        print(f"👤 Ответ от сервера: {user_response.status_code}, {user_response.text}")
 
-    await message.answer("👋 Добро пожаловать в Flower Delivery Bot!\nВыберите действие:", reply_markup=menu)
+        if user_response.status_code == 200:
+            user_data = user_response.json()
+
+            # Если `telegram_id` у пользователя пустой, обновляем его
+            if not user_data.get("telegram_id"):
+                update_data = {"telegram_id": telegram_id}
+                update_response = requests.patch(
+                    f"http://127.0.0.1:8000/api/users/{user_data['id']}/",
+                    json=update_data,
+                    headers=headers
+                )
+                print(f"✅ Обновлен Telegram ID: {update_response.status_code}, {update_response.text}")
+
+        else:
+            # Если пользователя нет, создаём его
+            create_user_data = {"username": username, "telegram_id": telegram_id}
+            create_response = requests.post(
+                "http://127.0.0.1:8000/api/users/",
+                json=create_user_data,
+                headers=headers
+            )
+            print(f"✅ Создан новый пользователь: {create_response.status_code}, {create_response.text}")
+
+        # Сообщаем пользователю, что он зарегистрирован
+        await message.answer("✅ Вы зарегистрированы! Теперь вы будете получать уведомления о заказах.", reply_markup=menu)
+
+    except Exception as e:
+        print(f"❌ Ошибка при регистрации: {e}")
+        await message.answer("⚠ Произошла ошибка при регистрации. Попробуйте ещё раз.")
+
 
 # Получение списка товаров через API
-import os
-from flower_delivery.settings import MEDIA_ROOT, SITE_URL, MEDIA_URL
-
 @dp.message(F.text == "\U0001F6CD Каталог")
 async def catalog(message: types.Message):
     response = requests.get(f"{SITE_URL}/api/catalog/", headers=headers)
@@ -200,16 +237,18 @@ async def confirm_order(callback: types.CallbackQuery, state: FSMContext):
     django_user_id = user_data["id"]
 
     order_data = {
-        "user": django_user_id,
+        "telegram_id": callback.from_user.id,
+        "user": django_user_id,  # Используем ID существующего пользователя
         "products": [data["product_id"]],
         "status": "new",
         "name": data["name"],
         "phone": data["phone"],
-        "address": data["address"],
-        "telegram_id": callback.from_user.id  # Добавляем telegram_id в заказ
+        "address": data["address"]
     }
 
+    print(f"📤 Отправляем заказ: {order_data}")  # Лог перед отправкой
     response = requests.post("http://127.0.0.1:8000/api/orders/", json=order_data, headers=headers)
+    print(f"📥 Ответ от сервера: {response.status_code}, {response.text}")  # Логируем ответ
 
     if response.status_code == 201:
         order_info = response.json()

@@ -1,9 +1,16 @@
-from django.urls import path
-from .views import register
+from django.urls import path, include
 from django.contrib.auth.views import LoginView, LogoutView
+from rest_framework.routers import DefaultRouter
+from .views import register, UserViewSet, get_user_by_telegram_id
+
+router = DefaultRouter()
+router.register(r'users', UserViewSet, basename="users")
 
 urlpatterns = [
+    path("api/", include(router.urls)),
     path("register/", register, name="register"),
     path("login/", LoginView.as_view(template_name="users/login.html"), name="login"),
     path("logout/", LogoutView.as_view(next_page="home"), name="logout"),
+    path("get_user/", get_user_by_telegram_id, name="get-user"),
 ]
+urlpatterns += router.urls
