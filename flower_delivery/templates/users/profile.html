@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}Личный кабинет{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h2>👤 Личный кабинет</h2>
+    <p><strong>Имя пользователя:</strong> {{ user.username }}</p>
+    <p><strong>Email:</strong> {{ user.email|default:"Не указано" }}</p>
+    <p><strong>Telegram ID:</strong> {{ user.telegram_id|default:"Не привязан" }}</p>
+
+    <h3>📦 История заказов</h3>
+    {% if orders %}
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Товары</th>
+                    <th>Статус</th>
+                    <th>Дата</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for order in orders %}
+                <tr>
+                    <td>{{ order.id }}</td>
+                    <td>
+                        {% for product in order.products.all %}
+                            {{ product.name }}{% if not forloop.last %}, {% endif %}
+                        {% endfor %}
+                    </td>
+                    <td>
+                        {% if order.status == "new" %}
+                            🟡 Новый
+                        {% elif order.status == "processing" %}
+                            🟠 В обработке
+                        {% elif order.status == "completed" %}
+                            🟢 Завершён
+                        {% else %}
+                            ❓ {{ order.status }}
+                        {% endif %}
+                    </td>
+                    <td>{{ order.created_at|date:"d.m.Y H:i" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>❌ У вас пока нет заказов.</p>
+    {% endif %}
+</div>
+{% endblock %}

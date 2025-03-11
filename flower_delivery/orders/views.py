@@ -154,4 +154,3 @@ def checkout(request):
         form = OrderForm()
 
     return render(request, "orders/checkout.html", {"form": form})
-

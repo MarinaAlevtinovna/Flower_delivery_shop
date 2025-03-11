@@ -136,3 +136,6 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.IsAuthenticated',  # API доступно только аутентифицированным пользователям
     ],
 }
+
+LOGIN_REDIRECT_URL = "/"
+LOGOUT_REDIRECT_URL = "/"

@@ -1,6 +1,8 @@
-from django.contrib.auth.forms import UserCreationForm
+from users.forms import CustomUserCreationForm
 from django.shortcuts import render, redirect
+from django.contrib.auth.decorators import login_required
 from users.models import CustomUser
+from orders.models import Order
 from users.serializers import CustomUserSerializer
 from rest_framework.generics import RetrieveUpdateAPIView
 from rest_framework.viewsets import ModelViewSet
@@ -10,12 +12,12 @@ from rest_framework.permissions import IsAuthenticated
 
 def register(request):
     if request.method == "POST":
-        form = UserCreationForm(request.POST)
+        form = CustomUserCreationForm(request.POST)
         if form.is_valid():
             form.save()
             return redirect("login")
     else:
-        form = UserCreationForm()
+        form = CustomUserCreationForm()
     return render(request, "users/register.html", {"form": form})
 
 
@@ -34,3 +36,9 @@ def get_user_by_telegram_id(request):
     if user:
         return Response(CustomUserSerializer(user).data)
     return Response({"error": "User not found"}, status=404)
+
+@login_required
+def profile(request):
+    user = request.user
+    user_orders = Order.objects.filter(user=user)
+    return render(request, "users/profile.html", {"user": user, "orders": user_orders})
