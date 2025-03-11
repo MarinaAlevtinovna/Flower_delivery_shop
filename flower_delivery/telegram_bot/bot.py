@@ -49,6 +49,8 @@ async def send_message(chat_id: int, message: str):
         logging.info(f"📩 Уведомление отправлено пользователю {chat_id}: {message}")
     except Exception as e:
         logging.error(f"❌ Ошибка отправки уведомления пользователю {chat_id}: {e}")
+    finally:
+        await bot.session.close()
 
 
 @dp.message(CommandStart())

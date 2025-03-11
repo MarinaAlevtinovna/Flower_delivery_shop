@@ -4,7 +4,6 @@ from .forms import OrderForm
 from catalog.models import Product
 from users.models import CustomUser
 from rest_framework import viewsets
-from .models import Order
 from .serializers import OrderSerializer
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
@@ -14,6 +13,9 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.authentication import TokenAuthentication
 from rest_framework import serializers
 import logging
+from django.apps import apps
+Order = apps.get_model("orders", "Order")
+
 
 logger = logging.getLogger(__name__)
 

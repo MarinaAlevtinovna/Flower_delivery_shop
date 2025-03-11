@@ -1,10 +1,16 @@
 from django.db import models
-from users.models import CustomUser
-from catalog.models import Product
+from django.apps import apps
+from django.contrib.auth import get_user_model
 
+User = get_user_model()
+
+
+def get_products(self):
+    Product = apps.get_model("catalog", "Product")
+    return Product.objects.filter(order=self)
 class Order(models.Model):
-    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
-    products = models.ManyToManyField(Product)
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    products = models.ManyToManyField("catalog.Product")
     created_at = models.DateTimeField(auto_now_add=True)
 
     name = models.CharField(max_length=255, blank=True, default="")
