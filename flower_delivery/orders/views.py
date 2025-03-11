@@ -51,38 +51,33 @@ def get_user_orders(request):
     return Response(serializer.data, status=200)
 
 class OrderViewSet(viewsets.ModelViewSet):
-    queryset = Order.objects.all()
     serializer_class = OrderSerializer
     authentication_classes = [TokenAuthentication]
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        """Фильтруем заказы только для авторизованного пользователя"""
         user = self.request.user
-        return Order.objects.filter(user=user)
+        telegram_id = self.request.GET.get("telegram_id")  # Получаем Telegram ID из запроса
 
-    def list(self, request, *args, **kwargs):
-        telegram_id = request.GET.get("user")
+        print(f"📌 Проверка get_queryset: Пользователь: {user}, Telegram ID: {telegram_id}")  # Логируем данные
 
+        if not user.is_authenticated:
+            print("❌ Пользователь не авторизован, возвращаем пустой список")
+            return Order.objects.none()
+
+        # Исправляем поиск пользователя по Telegram ID
         if telegram_id:
-            user = User.objects.filter(username=f"user_{telegram_id}").first()
+            user = User.objects.filter(telegram_id=telegram_id).first()
             if user:
-                self.queryset = self.queryset.filter(user=user)
+                print(f"✅ Нашли пользователя {user.username}, Telegram ID {telegram_id}, возвращаем его заказы")
+                return Order.objects.filter(user=user)
+            else:
+                print(f"❌ Пользователь с Telegram ID {telegram_id} не найден в базе")
+                return Order.objects.none()
 
-        return super().list(request, *args, **kwargs)
-
-    def perform_create(self, serializer):
-        telegram_id = self.request.data.get("telegram_id")
-
-        if not telegram_id:
-            raise serializers.ValidationError({"telegram_id": "Не указан Telegram ID"})
-
-        user = User.objects.filter(telegram_id=telegram_id).first()
-
-        if not user:
-            raise serializers.ValidationError({"user": "Пользователь не найден!"})
-
-        serializer.save(user=user)
-
+        print(f"✅ Возвращаем заказы текущего пользователя: {user.username}")
+        return Order.objects.filter(user=user)
 
 class ProductViewSet(viewsets.ModelViewSet):
     queryset = Product.objects.all()
